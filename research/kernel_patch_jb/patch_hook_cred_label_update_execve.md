@@ -6,24 +6,25 @@
   1. Resolve `vnode_getattr` (symbol or string-near function).
   2. Find sandbox `mac_policy_ops` table from Seatbelt policy metadata.
   3. Pick cred-label execve hook entry from early ops indices by function-size heuristic.
-- Patch action:
-  - Inject cave shellcode that:
+- Patch action (inline trampoline):
+  - Replace the first instruction (PACIBSP) of the original hook with `B cave`.
+  - Cave shellcode runs PACIBSP first (relocated), then:
     - builds inline `vfs_context` via `mrs tpidr_el1` (current_thread),
     - calls `vnode_getattr`,
     - propagates uid/gid into new credential,
     - updates csflags with CS_VALID,
-    - jumps back to original hook.
-  - Rewrite selected ops-table pointer entry to cave target (preserving auth-rebase upper bits).
+    - `B hook+4` to resume original function at second instruction (STP).
+  - No ops table pointer modification — avoids chained fixup integrity issues.
 
 ## 2) Expected Outcome
 - Interpose sandbox cred-label execve hook with custom ownership/credential propagation logic.
 
 ## 3) Target
 - Ops table: `mac_policy_ops` at `0xFFFFFE0007A58488` (discovered via mac_policy_conf)
-- Hook index: 18 (largest function in ops[0:29], 4208 bytes)
+- Hook index: 18 (largest function in ops[0:29], 4040 bytes)
   - Original hook: `sub_FFFFFE00093BDB64` (Sandbox `hook..execve()` handler)
   - Contains: sandbox profile evaluation, container assignment, entitlement processing
-- One `mac_policy_ops` function-pointer entry + injected hook shellcode cave.
+- Inline trampoline at hook function entry + shellcode cave in __TEXT_EXEC.
 
 ## 4) IDA MCP Evidence
 
@@ -37,21 +38,34 @@
   - [7]: `0xFE00093B0C04` (36 bytes)
   - [11]: `0xFE00093B0B68` (156 bytes)
   - [13]: `0xFE00093B0B5C` (12 bytes)
-  - [18]: `0xFE00093BDB64` (4208 bytes) ← **selected by size heuristic**
+  - [18]: `0xFE00093BDB64` (4040 bytes) ← **selected by size heuristic**
   - [19]: `0xFE00093B0AE8` (116 bytes)
   - [29]: `0xFE00093B0830` (696 bytes)
 
 ### vnode_getattr
 - String-related hit: xref `0xFE00084C08EC` → function start `0xFE00084C0718`
 
-### Chained fixup format
-- Ops table entries use auth rebase (bit63=1):
-  - Upper 32 bits: diversity(16) + addrDiv(1) + key(2) + next(12) + auth(1)
-  - Lower 32 bits: target file offset
-- The rewrite preserves upper bits and replaces lower 32 with cave file offset.
-- Kernel loader re-signs the new target with the same PAC key/diversity → valid PAC pointer.
+### Original hook prologue
+```
+FFFFFE00093BDB64  PACIBSP          ; ← replaced with B cave
+FFFFFE00093BDB68  STP X28,X27,[SP,#-0x60]!
+FFFFFE00093BDB6C  STP X26,X25,[SP,#0x10]
+...
+```
 
-## 5) Previous Bug (PANIC root cause)
+### Chained fixup format (reference, NO LONGER MODIFIED)
+- Ops table entries use auth rebase (bit63=1):
+  - auth=1, key=IA (0), addrDiv=0
+  - ops[18] diversity=0xEC79, next=2, target=0x023B9B64
+- Kernel loader signs with IA + diversity from fixup metadata.
+- Dispatch code uses a DIFFERENT PAC discriminator (e.g., 0x8550).
+- **Cannot rewrite ops table pointer** — the fixup diversity doesn't match
+  dispatch discriminator, and modifying chained fixup entries breaks
+  kernelcache integrity, causing PAC failures in unrelated kexts.
+
+## 5) Bug History
+
+### Bug 1: Non-executable code cave (PANIC)
 The code cave was allocated in `__PRELINK_TEXT` segment. While marked R-X in the
 Mach-O, this segment is **non-executable at runtime** on ARM64e due to
 KTRR (Kernel Text Read-only Region) enforcement. The cave ended up at a low
@@ -59,20 +73,45 @@ file offset (e.g. 0x5440) in __PRELINK_TEXT padding, which at runtime maps to a
 non-executable page.
 
 **Panic**: "Kernel instruction fetch abort at pc 0xfffffe004761d440"
-- The 0x47 in the upper nibble (instead of expected 0x07) indicates PAC poisoning:
-  the CPU attempted to branch through the ops table pointer, PAC auth succeeded,
-  but the target address was in a non-executable region → instruction fetch fault.
 
-## 6) Fix Applied
-- Modified `_find_code_cave()` in `kernel_jb_base.py` to only search `__TEXT_EXEC`
-  and `__TEXT_BOOT_EXEC` segments.
-- `__PRELINK_TEXT` is now explicitly excluded since KTRR makes it non-executable
-  at runtime despite the Mach-O R-X flags.
-- Verified __TEXT_EXEC has sufficient padding at segment end (0x1A10+ bytes of zeros
-  at `0xFE00095C25F0`) for the 180-byte shellcode.
+**Fix**: Modified `_find_code_cave()` in `kernel_jb_base.py` to only search
+`__TEXT_EXEC` and `__TEXT_BOOT_EXEC` segments. `__PRELINK_TEXT` excluded.
+
+### Bug 2: Ops table pointer rewrite breaks chained fixups (PAC PANIC)
+The approach of modifying the ops table pointer (preserving upper 32 auth bits,
+replacing lower 32 target bits) breaks the kernelcache's chained fixup integrity.
+This causes PAC failures in completely UNRELATED kexts (e.g., AppleImage4).
+
+**Panic**: "PAC failure from kernel with IA key while branching to x8 at pc
+0xfffffe00314f4770" — the crash was in AppleImage4:__text, not in sandbox code.
+
+**Root cause analysis**:
+- The kernelcache uses a fileset Mach-O with chained fixup pointers in __DATA.
+- Each fixup entry includes auth metadata (key, diversity, next chain link).
+- Modifying ANY entry in the chain appears to break the integrity check for the
+  entire segment/chain, causing ALL chained fixup resolutions to fail or corrupt.
+- Result: PAC-signed pointers throughout the kernel get wrong values → PAC auth
+  fails at unrelated dispatch sites.
+- Additionally verified: ops[18] diversity=0xEC79 does NOT match the dispatch
+  discriminator (x17=0x8550 at the crash site), confirming the pointer encoding
+  doesn't match how it's consumed.
+
+**Fix**: Switched from ops table pointer rewrite to **inline trampoline**.
+Replace PACIBSP at function entry with `B cave`. The cave runs PACIBSP first
+(relocated instruction), performs ownership propagation, then `B hook+4` to
+resume the original function. Uses only PC-relative B/BL instructions —
+no PAC involvement, no chained fixup modification.
+
+## 6) Current Implementation
+- 47 patches: 46 shellcode instructions in __TEXT_EXEC cave + 1 trampoline
+  (B cave replacing PACIBSP at hook function entry).
+- Cave at file offset 0xAB1720 (inside __TEXT_EXEC).
+- No ops table modification.
 
 ## 7) Risk Assessment
-- **Medium-High**: Table-entry rewrite + shellcode interposition is invasive.
-  Incorrect index selection or shellcode bugs can break sandbox hook dispatch.
-- Mitigated by: dynamic function-size heuristic for index detection, PAC-aware
-  chained fixup pointer rewrite, and __TEXT_EXEC-restricted code cave.
+- **Medium**: Inline function entry trampoline + shellcode is standard hooking.
+  Risk is in shellcode correctness (register save/restore, stack alignment,
+  vnode_getattr argument setup).
+- Mitigated by: dynamic function-size heuristic for hook identification,
+  __TEXT_EXEC-restricted code cave, PACIBSP relocation preserving PAC semantics,
+  full register save/restore around ownership propagation code.
