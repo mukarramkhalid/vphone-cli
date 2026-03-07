@@ -11,7 +11,6 @@ CFW_INPUT   ?= cfw_input
 RESTORE_UDID ?=
 RESTORE_ECID ?=
 IRECOVERY_ECID ?=
-SSH_PORT    ?= 2222
 
 # ─── Build info ──────────────────────────────────────────────────
 GIT_HASH    := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -48,10 +47,9 @@ help:
 	@echo "             SKIP_PROJECT_SETUP=1      Skip setup_tools/build"
 	@echo "             NONE_INTERACTIVE=1        Auto-continue prompts + boot analysis"
 	@echo "             SUDO_PASSWORD=...         Preload sudo credential for setup flow"
-	@echo "             PATCH=patch_xxx           Apply single JB patch test on top of dev patch"
 	@echo ""
 	@echo "Setup (one-time):"
-	@echo "  make setup_tools             Install all tools (brew, trustcache, libimobiledevice, venv)"
+	@echo "  make setup_tools             Install all tools (brew, trustcache, insert_dylib, libimobiledevice, venv)"
 	@echo ""
 	@echo "Build:"
 	@echo "  make build                   Build + sign vphone-cli"
@@ -70,8 +68,6 @@ help:
 	@echo "  make fw_patch                Patch boot chain (6 components)"
 	@echo "  make fw_patch_dev            Patch boot chain (dev mode TXM patcher)"
 	@echo "  make fw_patch_jb             Run fw_patch + JB extension patches (WIP)"
-	@echo "  make fw_patch_test PATCH=... Apply one JB kernel patch method (after fw_patch_dev)"
-	@echo "  make jb_patch_autotest       Run setup_machine per JB patch method with logs"
 	@echo ""
 	@echo "Restore:"
 	@echo "  make restore_get_shsh        Fetch SHSH blob from device"
@@ -85,8 +81,9 @@ help:
 	@echo "  make cfw_install             Install CFW mods via SSH"
 	@echo "  make cfw_install_dev         Install CFW mods via SSH (dev mode)"
 	@echo "  make cfw_install_jb          Install CFW + JB extensions (jetsam/procursus/basebin)"
+	@echo "  make cfw_install_jb_finalize Finalize JB bootstrap on live device (symlinks/sileo/apt)"
 	@echo ""
-	@echo "Variables: VM_DIR=$(VM_DIR) CPU=$(CPU) MEMORY=$(MEMORY) DISK_SIZE=$(DISK_SIZE) SSH_PORT=$(SSH_PORT)"
+	@echo "Variables: VM_DIR=$(VM_DIR) CPU=$(CPU) MEMORY=$(MEMORY) DISK_SIZE=$(DISK_SIZE)"
 
 # ═══════════════════════════════════════════════════════════════════
 # Setup
@@ -101,7 +98,6 @@ setup_machine:
 	fi
 	SUDO_PASSWORD="$(SUDO_PASSWORD)" \
 	NONE_INTERACTIVE="$(NONE_INTERACTIVE)" \
-	PATCH="$(PATCH)" \
 	zsh $(SCRIPTS)/setup_machine.sh \
 		$(if $(filter 1 true yes YES TRUE,$(JB)),--jb,) \
 		$(if $(filter 1 true yes YES TRUE,$(DEV)),--dev,) \
@@ -199,7 +195,7 @@ boot_dfu: build
 # Firmware pipeline
 # ═══════════════════════════════════════════════════════════════════
 
-.PHONY: fw_prepare fw_patch fw_patch_dev fw_patch_jb fw_patch_test jb_patch_autotest
+.PHONY: fw_prepare fw_patch fw_patch_dev fw_patch_jb
 
 fw_prepare:
 	cd $(VM_DIR) && bash "$(CURDIR)/$(SCRIPTS)/fw_prepare.sh"
@@ -212,12 +208,6 @@ fw_patch_dev:
 
 fw_patch_jb:
 	cd $(VM_DIR) && $(PYTHON) "$(CURDIR)/$(SCRIPTS)/fw_patch_jb.py" .
-
-fw_patch_test:
-	cd $(VM_DIR) && PATCH="$(PATCH)" $(PYTHON) "$(CURDIR)/$(SCRIPTS)/fw_patch_test.py" .
-
-jb_patch_autotest:
-	zsh "$(CURDIR)/$(SCRIPTS)/jb_patch_autotest.sh"
 
 # ═══════════════════════════════════════════════════════════════════
 # Restore
@@ -254,13 +244,16 @@ ramdisk_send:
 # CFW
 # ═══════════════════════════════════════════════════════════════════
 
-.PHONY: cfw_install cfw_install_dev cfw_install_jb
+.PHONY: cfw_install cfw_install_dev cfw_install_jb cfw_install_jb_finalize
 
 cfw_install:
-	cd $(VM_DIR) && SSH_PORT="$(SSH_PORT)" zsh "$(CURDIR)/$(SCRIPTS)/cfw_install.sh" .
+	cd $(VM_DIR) && $(if $(SSH_PORT),SSH_PORT="$(SSH_PORT)") zsh "$(CURDIR)/$(SCRIPTS)/cfw_install.sh" .
 
 cfw_install_dev:
-	cd $(VM_DIR) && SSH_PORT="$(SSH_PORT)" zsh "$(CURDIR)/$(SCRIPTS)/cfw_install_dev.sh" .
+	cd $(VM_DIR) && $(if $(SSH_PORT),SSH_PORT="$(SSH_PORT)") zsh "$(CURDIR)/$(SCRIPTS)/cfw_install_dev.sh" .
 
 cfw_install_jb:
-	cd $(VM_DIR) && SSH_PORT="$(SSH_PORT)" zsh "$(CURDIR)/$(SCRIPTS)/cfw_install_jb.sh" .
+	cd $(VM_DIR) && $(if $(SSH_PORT),SSH_PORT="$(SSH_PORT)") zsh "$(CURDIR)/$(SCRIPTS)/cfw_install_jb.sh" .
+
+cfw_install_jb_finalize:
+	$(if $(SSH_PORT),SSH_PORT="$(SSH_PORT)") $(if $(SSH_PASS),SSH_PASS="$(SSH_PASS)") zsh "$(CURDIR)/$(SCRIPTS)/cfw_install_jb_post.sh"

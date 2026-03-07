@@ -9,7 +9,6 @@ extension VPhoneMenuController {
         menu.addItem(makeItem("File Browser", action: #selector(openFiles)))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makeItem("Developer Mode Status", action: #selector(devModeStatus)))
-        menu.addItem(makeItem("Enable Developer Mode [WIP]", action: #selector(devModeEnable)))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makeItem("Ping", action: #selector(sendPing)))
         menu.addItem(makeItem("Guest Version", action: #selector(queryGuestVersion)))
@@ -28,23 +27,6 @@ extension VPhoneMenuController {
                 showAlert(
                     title: "Developer Mode",
                     message: status.enabled ? "Developer Mode is enabled." : "Developer Mode is disabled.",
-                    style: .informational
-                )
-            } catch {
-                showAlert(title: "Developer Mode", message: "\(error)", style: .warning)
-            }
-        }
-    }
-
-    @objc func devModeEnable() {
-        Task {
-            do {
-                let result = try await control.sendDevModeEnable()
-                showAlert(
-                    title: "Developer Mode",
-                    message: result.message.isEmpty
-                        ? (result.alreadyEnabled ? "Developer Mode already enabled." : "Developer Mode enabled.")
-                        : result.message,
                     style: .informational
                 )
             } catch {

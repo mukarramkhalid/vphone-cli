@@ -12,7 +12,7 @@ class VPhoneWindowController: NSObject, NSToolbarDelegate {
 
     func showWindow(
         for vm: VZVirtualMachine, screenWidth: Int, screenHeight: Int, screenScale: Double,
-        keyHelper: VPhoneKeyHelper, control: VPhoneControl
+        keyHelper: VPhoneKeyHelper, control: VPhoneControl, ecid: String?
     ) {
         self.control = control
 
@@ -36,8 +36,8 @@ class VPhoneWindowController: NSObject, NSToolbarDelegate {
 
         window.isReleasedWhenClosed = false
         window.contentAspectRatio = windowSize
-        window.title = "vphone"
-        window.subtitle = "daemon connecting..."
+        window.title = "VPHONE ⏳"
+        window.subtitle = ecid ?? ""
         window.contentView = vmView
         window.center()
 
@@ -57,12 +57,12 @@ class VPhoneWindowController: NSObject, NSToolbarDelegate {
         window.makeFirstResponder(view)
         NSApp.activate(ignoringOtherApps: true)
 
-        // Poll vphoned status for subtitle
+        // Poll vphoned status for title indicator
         statusTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) {
             [weak self, weak window] _ in
             Task { @MainActor in
                 guard let self, let window, let control = self.control else { return }
-                window.subtitle = control.isConnected ? "daemon connected" : "daemon connecting..."
+                window.title = control.isConnected ? "VPHONE 🔗" : "VPHONE ⛓️‍💥"
             }
         }
     }

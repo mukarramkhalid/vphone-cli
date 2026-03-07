@@ -198,8 +198,8 @@ check_prereqs() {
 
 # ── Cleanup trap (unmount DMGs on error) ───────────────────────
 cleanup_on_exit() {
-    safe_detach "$TEMP_DIR/mnt_sysos"
-    safe_detach "$TEMP_DIR/mnt_appos"
+    safe_detach "$TEMP_DIR/mnt_sysos" 2>/dev/null || true
+    safe_detach "$TEMP_DIR/mnt_appos" 2>/dev/null || true
 }
 trap cleanup_on_exit EXIT
 
@@ -234,42 +234,7 @@ echo "  AppOS:    $CRYPTEX_APPOS"
 echo ""
 echo "[1/7] Installing Cryptex (SystemOS + AppOS)..."
 
-SYSOS_DMG="$TEMP_DIR/CryptexSystemOS.dmg"
-APPOS_DMG="$TEMP_DIR/CryptexAppOS.dmg"
-MNT_SYSOS="$TEMP_DIR/mnt_sysos"
-MNT_APPOS="$TEMP_DIR/mnt_appos"
-
-# Decrypt SystemOS AEA (cached — skip if already decrypted)
-if [[ ! -f "$SYSOS_DMG" ]]; then
-    echo "  Extracting AEA key..."
-    AEA_KEY=$(ipsw fw aea --key "$RESTORE_DIR/$CRYPTEX_SYSOS")
-    echo "  key: $AEA_KEY"
-    echo "  Decrypting SystemOS..."
-    aea decrypt -i "$RESTORE_DIR/$CRYPTEX_SYSOS" -o "$SYSOS_DMG" -key-value "$AEA_KEY"
-else
-    echo "  Using cached SystemOS DMG"
-fi
-
-# Copy AppOS (unencrypted, cached)
-if [[ ! -f "$APPOS_DMG" ]]; then
-    cp "$RESTORE_DIR/$CRYPTEX_APPOS" "$APPOS_DMG"
-else
-    echo "  Using cached AppOS DMG"
-fi
-
-# Detach any leftover mounts from previous runs
-safe_detach "$MNT_SYSOS"
-safe_detach "$MNT_APPOS"
-mkdir -p "$MNT_SYSOS" "$MNT_APPOS"
-assert_mount_under_vm "$MNT_SYSOS" "SystemOS mountpoint"
-assert_mount_under_vm "$MNT_APPOS" "AppOS mountpoint"
-
-echo "  Mounting SystemOS..."
-sudo hdiutil attach -mountpoint "$MNT_SYSOS" "$SYSOS_DMG" -nobrowse -owners off
-echo "  Mounting AppOS..."
-sudo hdiutil attach -mountpoint "$MNT_APPOS" "$APPOS_DMG" -nobrowse -owners off
-
-# Mount device rootfs (tolerate already-mounted)
+# Mount device rootfs first to check existing state
 echo "  Mounting device rootfs rw..."
 remote_mount /dev/disk1s1 /mnt1
 
@@ -296,28 +261,79 @@ else
     fi
 fi
 
-ssh_cmd "/bin/rm -rf /mnt1/System/Cryptexes/App /mnt1/System/Cryptexes/OS"
-ssh_cmd "/bin/mkdir -p /mnt1/System/Cryptexes/App /mnt1/System/Cryptexes/OS"
-ssh_cmd "/bin/chmod 0755 /mnt1/System/Cryptexes/App /mnt1/System/Cryptexes/OS"
+# Check if Cryptexes already exist on device (skip the slow copy if so)
+CRYPTEX_OS_COUNT=$(ssh_cmd "/bin/ls /mnt1/System/Cryptexes/OS/ 2>/dev/null | /usr/bin/wc -l" | tr -d ' ')
+CRYPTEX_APP_COUNT=$(ssh_cmd "/bin/ls /mnt1/System/Cryptexes/App/ 2>/dev/null | /usr/bin/wc -l" | tr -d ' ')
 
-# Copy Cryptex files to device
-echo "  Copying Cryptexes to device (this takes ~3 minutes)..."
-scp_to "$MNT_SYSOS/." "/mnt1/System/Cryptexes/OS"
-scp_to "$MNT_APPOS/." "/mnt1/System/Cryptexes/App"
+if [[ "${CRYPTEX_OS_COUNT:-0}" -gt 0 && "${CRYPTEX_APP_COUNT:-0}" -gt 0 ]]; then
+    echo "  [*] Cryptexes already installed on device (OS=${CRYPTEX_OS_COUNT} entries, App=${CRYPTEX_APP_COUNT} entries), skipping"
 
-# Create dyld symlinks (ln -sf is idempotent)
-echo "  Creating dyld symlinks..."
-ssh_cmd "/bin/ln -sf ../../../System/Cryptexes/OS/System/Library/Caches/com.apple.dyld \
-    /mnt1/System/Library/Caches/com.apple.dyld"
-ssh_cmd "/bin/ln -sf ../../../../System/Cryptexes/OS/System/DriverKit/System/Library/dyld \
-    /mnt1/System/DriverKit/System/Library/dyld"
+    # Still ensure dyld symlinks exist
+    ssh_cmd "/bin/ln -sf ../../../System/Cryptexes/OS/System/Library/Caches/com.apple.dyld \
+        /mnt1/System/Library/Caches/com.apple.dyld"
+    ssh_cmd "/bin/ln -sf ../../../../System/Cryptexes/OS/System/DriverKit/System/Library/dyld \
+        /mnt1/System/DriverKit/System/Library/dyld"
 
-# Unmount Cryptex DMGs
-echo "  Unmounting Cryptex DMGs..."
-safe_detach "$MNT_SYSOS"
-safe_detach "$MNT_APPOS"
+    echo "  [+] Cryptex skipped (already present)"
+else
+    SYSOS_DMG="$TEMP_DIR/CryptexSystemOS.dmg"
+    APPOS_DMG="$TEMP_DIR/CryptexAppOS.dmg"
+    MNT_SYSOS="$TEMP_DIR/mnt_sysos"
+    MNT_APPOS="$TEMP_DIR/mnt_appos"
 
-echo "  [+] Cryptex installed"
+    # Decrypt SystemOS AEA (cached — skip if already decrypted)
+    if [[ ! -f "$SYSOS_DMG" ]]; then
+        echo "  Extracting AEA key..."
+        AEA_KEY=$(ipsw fw aea --key "$RESTORE_DIR/$CRYPTEX_SYSOS")
+        echo "  key: $AEA_KEY"
+        echo "  Decrypting SystemOS..."
+        aea decrypt -i "$RESTORE_DIR/$CRYPTEX_SYSOS" -o "$SYSOS_DMG" -key-value "$AEA_KEY"
+    else
+        echo "  Using cached SystemOS DMG"
+    fi
+
+    # Copy AppOS (unencrypted, cached)
+    if [[ ! -f "$APPOS_DMG" ]]; then
+        cp "$RESTORE_DIR/$CRYPTEX_APPOS" "$APPOS_DMG"
+    else
+        echo "  Using cached AppOS DMG"
+    fi
+
+    # Detach any leftover mounts from previous runs
+    safe_detach "$MNT_SYSOS"
+    safe_detach "$MNT_APPOS"
+    mkdir -p "$MNT_SYSOS" "$MNT_APPOS"
+    assert_mount_under_vm "$MNT_SYSOS" "SystemOS mountpoint"
+    assert_mount_under_vm "$MNT_APPOS" "AppOS mountpoint"
+
+    echo "  Mounting SystemOS..."
+    sudo hdiutil attach -mountpoint "$MNT_SYSOS" "$SYSOS_DMG" -nobrowse -owners off
+    echo "  Mounting AppOS..."
+    sudo hdiutil attach -mountpoint "$MNT_APPOS" "$APPOS_DMG" -nobrowse -owners off
+
+    ssh_cmd "/bin/rm -rf /mnt1/System/Cryptexes/App /mnt1/System/Cryptexes/OS"
+    ssh_cmd "/bin/mkdir -p /mnt1/System/Cryptexes/App /mnt1/System/Cryptexes/OS"
+    ssh_cmd "/bin/chmod 0755 /mnt1/System/Cryptexes/App /mnt1/System/Cryptexes/OS"
+
+    # Copy Cryptex files to device
+    echo "  Copying Cryptexes to device (this takes ~3 minutes)..."
+    scp_to "$MNT_SYSOS/." "/mnt1/System/Cryptexes/OS"
+    scp_to "$MNT_APPOS/." "/mnt1/System/Cryptexes/App"
+
+    # Create dyld symlinks (ln -sf is idempotent)
+    echo "  Creating dyld symlinks..."
+    ssh_cmd "/bin/ln -sf ../../../System/Cryptexes/OS/System/Library/Caches/com.apple.dyld \
+        /mnt1/System/Library/Caches/com.apple.dyld"
+    ssh_cmd "/bin/ln -sf ../../../../System/Cryptexes/OS/System/DriverKit/System/Library/dyld \
+        /mnt1/System/DriverKit/System/Library/dyld"
+
+    # Unmount Cryptex DMGs
+    echo "  Unmounting Cryptex DMGs..."
+    safe_detach "$MNT_SYSOS"
+    safe_detach "$MNT_APPOS"
+
+    echo "  [+] Cryptex installed"
+fi
 
 # ═══════════ 2/7 PATCH SEPUTIL ════════════════════════════════
 echo ""

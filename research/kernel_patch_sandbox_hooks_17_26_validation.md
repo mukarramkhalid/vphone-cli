@@ -1,4 +1,4 @@
-# Kernel Patch Validation: Sandbox Hooks 21-26 (Regular/Development)
+# Kernel Patch Validation: Sandbox Hooks 17-26 (Regular/Development)
 
 Date: 2026-03-05
 
@@ -6,6 +6,8 @@ Date: 2026-03-05
 
 Validate the following non-JB kernel patches on a freshly prepared (unpatched) firmware kernelcache:
 
+- 17/18 `file_check_mmap`: `mov x0,#0` + `ret`
+- 19/20 `mount_check_mount`: `mov x0,#0` + `ret`
 - 21/22 `mount_check_remount`: `mov x0,#0` + `ret`
 - 23/24 `mount_check_umount`: `mov x0,#0` + `ret`
 - 25/26 `vnode_check_rename`: `mov x0,#0` + `ret`
@@ -27,6 +29,8 @@ Patch flow under test:
 1. `_find_sandbox_ops_table_via_conf()` to locate `mac_policy_conf`
 2. `mpc_ops` pointer to read function entries by index
 3. `HOOK_INDICES`:
+   - `file_check_mmap = 36`
+   - `mount_check_mount = 87`
    - `mount_check_remount = 88`
    - `mount_check_umount = 91`
    - `vnode_check_rename = 120`
@@ -73,7 +77,7 @@ From direct `KernelPatcher` run on clean payload (in-memory, no file write):
 
 Using IDA DB and disassembly/decompile on the same firmware family:
 
-- Entry sites match the three hook slots above.
+- Entry sites match the five hook slots above.
 - For `vnode_check_rename`, downstream body includes rename-related path monitoring logic (`pathmonitor_prepare_rename`), confirming semantic alignment with rename hook behavior.
 - Note: current IDA database had these entry points already recognized as patched stubs; additional inspection was performed from `entry+8` into original body for semantic validation.
 
@@ -81,8 +85,8 @@ Using IDA DB and disassembly/decompile on the same firmware family:
 
 Status: **working for now**.
 
-For clean `fw_prepare` kernelcache, the 21-26 sandbox hook patches:
+For clean `fw_prepare` kernelcache, the 17-26 sandbox hook patches:
 
 - resolve through the correct `mac_policy_ops` table,
-- hit the expected three hook entry addresses,
+- hit the expected five hook entry addresses,
 - and rewrite exactly the first two instructions to `mov x0,#0; ret`.

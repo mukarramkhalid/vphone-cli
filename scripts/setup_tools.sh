@@ -2,7 +2,7 @@
 # setup_tools.sh — Install all required host tools for vphone-cli
 #
 # Installs brew packages, builds trustcache from source,
-# builds libimobiledevice toolchain, and creates Python venv.
+# clones insert_dylib, builds libimobiledevice toolchain, and creates Python venv.
 #
 # Run: make setup_tools
 
@@ -12,9 +12,22 @@ SCRIPT_DIR="${0:a:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
 TOOLS_PREFIX="${TOOLS_PREFIX:-$PROJECT_DIR/.tools}"
 
+clone_or_update() {
+    local url="$1"
+    local dir="$2"
+
+    if [[ -d "$dir/.git" ]]; then
+        git -C "$dir" fetch --depth 1 origin --quiet
+        git -C "$dir" reset --hard FETCH_HEAD --quiet
+        git -C "$dir" clean -fdx --quiet
+    else
+        git clone --depth 1 "$url" "$dir" --quiet
+    fi
+}
+
 # ── Brew packages ──────────────────────────────────────────────
 
-echo "[1/4] Checking brew packages..."
+echo "[1/5] Checking brew packages..."
 
 BREW_PACKAGES=(gnu-tar openssl@3 ldid-procursus sshpass)
 BREW_MISSING=()
@@ -34,7 +47,7 @@ fi
 
 # ── Trustcache ─────────────────────────────────────────────────
 
-echo "[2/4] trustcache"
+echo "[2/5] trustcache"
 
 TRUSTCACHE_BIN="$TOOLS_PREFIX/bin/trustcache"
 if [[ -x "$TRUSTCACHE_BIN" ]]; then
@@ -58,14 +71,31 @@ else
     echo "  Installed: $TRUSTCACHE_BIN"
 fi
 
+# ── insert_dylib ───────────────────────────────────────────────
+
+echo "[3/5] insert_dylib"
+
+INSERT_DYLIB_BIN="$TOOLS_PREFIX/bin/insert_dylib"
+if [[ -x "$INSERT_DYLIB_BIN" ]]; then
+    echo "  Already built: $INSERT_DYLIB_BIN"
+else
+    INSERT_DYLIB_DIR="$TOOLS_PREFIX/src/insert_dylib"
+    mkdir -p "${INSERT_DYLIB_DIR:h}"
+    clone_or_update "https://github.com/tyilo/insert_dylib" "$INSERT_DYLIB_DIR"
+    echo "  Building insert_dylib..."
+    mkdir -p "$TOOLS_PREFIX/bin"
+    clang -o "$INSERT_DYLIB_BIN" "$INSERT_DYLIB_DIR/insert_dylib/main.c" -framework Security -O2
+    echo "  Installed: $INSERT_DYLIB_BIN"
+fi
+
 # ── Libimobiledevice ──────────────────────────────────────────
 
-echo "[3/4] libimobiledevice"
+echo "[4/5] libimobiledevice"
 bash "$SCRIPT_DIR/setup_libimobiledevice.sh"
 
 # ── Python venv ────────────────────────────────────────────────
 
-echo "[4/4] Python venv"
+echo "[5/5] Python venv"
 zsh "$SCRIPT_DIR/setup_venv.sh"
 
 echo ""

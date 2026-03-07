@@ -26,7 +26,7 @@ Apple の Virtualization.framework と PCC の研究用 VM インフラを使用
 
 `66` は JB のデフォルトカーネルパッチ計画、`78` はデフォルト + オプションカーネルパッチ（`VPHONE_JB_ENABLE_OPTIONAL=1`）です。
 
-詳細なコンポーネントごとの内訳については [research/00_patch_comparison_all_variants.md](../research/00_patch_comparison_all_variants.md) を参照してください。
+詳細なコンポーネントごとの内訳については [research/0_binary_patch_comparison.md](../research/0_binary_patch_comparison.md) を参照してください。
 
 ## 前提条件
 

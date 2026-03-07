@@ -127,7 +127,6 @@ class VPhoneControl {
                     self?.connection = conn
                     self?.performHandshake(fd: conn.fileDescriptor)
                 case let .failure(error):
-                    print("[control] vsock: \(error.localizedDescription), retrying...")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                         self?.attemptConnect()
                     }
@@ -262,22 +261,10 @@ class VPhoneControl {
         let enabled: Bool
     }
 
-    struct DevModeEnableResult {
-        let alreadyEnabled: Bool
-        let message: String
-    }
-
     func sendDevModeStatus() async throws -> DevModeStatus {
         let (resp, _) = try await sendRequest(["t": "devmode", "action": "status"])
         let enabled = resp["enabled"] as? Bool ?? false
         return DevModeStatus(enabled: enabled)
-    }
-
-    func sendDevModeEnable() async throws -> DevModeEnableResult {
-        let (resp, _) = try await sendRequest(["t": "devmode", "action": "enable"])
-        let alreadyEnabled = resp["already_enabled"] as? Bool ?? false
-        let message = resp["msg"] as? String ?? ""
-        return DevModeEnableResult(alreadyEnabled: alreadyEnabled, message: message)
     }
 
     func sendPing() async throws {

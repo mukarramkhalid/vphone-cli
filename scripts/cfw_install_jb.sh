@@ -159,9 +159,18 @@ fi
 
 scp_from "/mnt1/sbin/launchd.bak" "$TEMP_DIR/launchd"
 
+# Extract original entitlements before patching (must preserve for spawn permissions)
+echo "  Extracting original entitlements..."
+ldid -e "$TEMP_DIR/launchd" > "$TEMP_DIR/launchd.entitlements" 2>/dev/null || true
+if [[ -s "$TEMP_DIR/launchd.entitlements" ]]; then
+    echo "  [+] Preserved launchd entitlements"
+else
+    echo "  [!] No entitlements found on original launchd"
+fi
+
 # Inject launchdhook via short root alias to avoid Mach-O header overflow.
 # Keep the full /cores/launchdhook.dylib copy on disk for compatibility, but
-# load /b from launchd because this launchd sample only has room for a 32-byte
+# load /b from launchd because this launchd sample only has room for a short
 # LC_LOAD_DYLIB command after stripping LC_CODE_SIGNATURE.
 if [[ -d "$JB_INPUT_DIR/basebin" ]]; then
     echo "  Injecting LC_LOAD_DYLIB for /b (short launchdhook alias)..."
@@ -169,7 +178,13 @@ if [[ -d "$JB_INPUT_DIR/basebin" ]]; then
 fi
 
 python3 "$SCRIPT_DIR/patchers/cfw.py" patch-launchd-jetsam "$TEMP_DIR/launchd"
-ldid_sign "$TEMP_DIR/launchd"
+
+# Re-sign with original entitlements to avoid "operation not permitted" on spawn
+if [[ -s "$TEMP_DIR/launchd.entitlements" ]]; then
+    ldid -S"$TEMP_DIR/launchd.entitlements" -M "-K$VM_DIR/$CFW_INPUT/signcert.p12" "$TEMP_DIR/launchd"
+else
+    ldid_sign "$TEMP_DIR/launchd"
+fi
 scp_to "$TEMP_DIR/launchd" "/mnt1/sbin/launchd"
 ssh_cmd "/bin/chmod 0755 /mnt1/sbin/launchd"
 
@@ -196,44 +211,57 @@ if [[ -f "$SILEO_DEB" ]]; then
     scp_to "$SILEO_DEB" "/mnt5/$BOOT_HASH/org.coolstar.sileo_2.5.1_iphoneos-arm64.deb"
 fi
 
-ssh_cmd "/bin/mkdir -p /mnt5/$BOOT_HASH/jb-vphone"
-ssh_cmd "/bin/chmod 0755 /mnt5/$BOOT_HASH/jb-vphone"
-ssh_cmd "/usr/sbin/chown 0:0 /mnt5/$BOOT_HASH/jb-vphone"
-ssh_cmd "/usr/bin/tar --preserve-permissions -xkf /mnt5/$BOOT_HASH/bootstrap-iphoneos-arm64.tar \
-    -C /mnt5/$BOOT_HASH/jb-vphone/"
-ssh_cmd "/bin/mv /mnt5/$BOOT_HASH/jb-vphone/var /mnt5/$BOOT_HASH/jb-vphone/procursus"
-ssh_cmd "/bin/mkdir -p /mnt5/$BOOT_HASH/jb-vphone/procursus"
-ssh_cmd "/bin/mv /mnt5/$BOOT_HASH/jb-vphone/procursus/jb/* /mnt5/$BOOT_HASH/jb-vphone/procursus 2>/dev/null || true"
-ssh_cmd "/bin/rm -rf /mnt5/$BOOT_HASH/jb-vphone/procursus/jb"
+JB_DIR_NAME="jb-vphone"
+ssh_cmd "/bin/rm -rf /mnt5/$BOOT_HASH/jb"
+ssh_cmd "/bin/rm -rf /mnt5/$BOOT_HASH/$JB_DIR_NAME"
+ssh_cmd "/bin/mkdir -p /mnt5/$BOOT_HASH/$JB_DIR_NAME"
+ssh_cmd "/bin/chmod 0755 /mnt5/$BOOT_HASH/$JB_DIR_NAME"
+ssh_cmd "/usr/sbin/chown 0:0 /mnt5/$BOOT_HASH/$JB_DIR_NAME"
+ssh_cmd "/usr/bin/tar --preserve-permissions -xf /mnt5/$BOOT_HASH/bootstrap-iphoneos-arm64.tar \
+    -C /mnt5/$BOOT_HASH/$JB_DIR_NAME/"
+ssh_cmd "/bin/mv /mnt5/$BOOT_HASH/$JB_DIR_NAME/var /mnt5/$BOOT_HASH/$JB_DIR_NAME/procursus"
+ssh_cmd "/bin/mv /mnt5/$BOOT_HASH/$JB_DIR_NAME/procursus/jb/* /mnt5/$BOOT_HASH/$JB_DIR_NAME/procursus 2>/dev/null || true"
+ssh_cmd "/bin/rm -rf /mnt5/$BOOT_HASH/$JB_DIR_NAME/procursus/jb"
 ssh_cmd "/bin/rm -f /mnt5/$BOOT_HASH/bootstrap-iphoneos-arm64.tar"
 rm -f "$BOOTSTRAP_TAR"
+
+# NOTE: /var/jb symlink is created at runtime by launchdhook.dylib
+# (Data volume is encrypted and not mountable from ramdisk).
 
 echo "  [+] procursus bootstrap installed"
 
 # ═══════════ JB-3 DEPLOY BASEBIN HOOKS ═════════════════════════
 BASEBIN_DIR="$JB_INPUT_DIR/basebin"
+
 if [[ -d "$BASEBIN_DIR" ]]; then
     echo ""
     echo "[JB-3] Deploying BaseBin hooks to /cores/..."
 
+    # Clean previous dylibs before re-uploading
+    echo "  Cleaning old /cores/ dylibs..."
+    ssh_cmd "/bin/rm -rf /mnt1/cores"
     ssh_cmd "/bin/mkdir -p /mnt1/cores"
     ssh_cmd "/bin/chmod 0755 /mnt1/cores"
 
+    # Install all pre-built dylibs from basebin payload
     for dylib in "$BASEBIN_DIR"/*.dylib; do
         [[ -f "$dylib" ]] || continue
         dylib_name="$(basename "$dylib")"
         echo "  Installing $dylib_name..."
-        # Re-sign with our certificate before deploying
         ldid_sign "$dylib"
         scp_to "$dylib" "/mnt1/cores/$dylib_name"
         ssh_cmd "/bin/chmod 0755 /mnt1/cores/$dylib_name"
-
-        if [[ "$dylib_name" == "launchdhook.dylib" ]]; then
-            echo "  Installing short launchdhook alias at /b..."
-            scp_to "$dylib" "/mnt1/b"
-            ssh_cmd "/bin/chmod 0755 /mnt1/b"
-        fi
     done
+
+    # Short alias for launchdhook (header space is tight)
+    if [[ -f "$BASEBIN_DIR/launchdhook.dylib" ]]; then
+        echo "  Installing short launchdhook alias at /b..."
+        cp "$BASEBIN_DIR/launchdhook.dylib" "$TEMP_DIR/b"
+        ldid_sign "$TEMP_DIR/b"
+        ssh_cmd "/bin/rm -f /mnt1/b"
+        scp_to "$TEMP_DIR/b" "/mnt1/b"
+        ssh_cmd "/bin/chmod 0755 /mnt1/b"
+    fi
 
     echo "  [+] BaseBin hooks deployed"
 fi

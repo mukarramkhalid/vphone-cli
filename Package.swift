@@ -7,6 +7,7 @@ let package = Package(
     platforms: [
         .macOS(.v15),
     ],
+    products: [],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.1"),
         .package(url: "https://github.com/mhdhejazi/Dynamic", from: "1.2.0"),

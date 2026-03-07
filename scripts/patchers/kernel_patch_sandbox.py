@@ -5,11 +5,11 @@ from .kernel_asm import MOV_X0_0, RET
 
 class KernelPatchSandboxMixin:
     def patch_sandbox_hooks(self):
-        """Patches 16-25: Stub Sandbox MACF hooks with mov x0,#0; ret.
+        """Patches 17-26: Stub Sandbox MACF hooks with mov x0,#0; ret.
 
         Uses mac_policy_ops struct indices from XNU source (xnu-11215+).
         """
-        self._log("\n[16-25] Sandbox MACF hooks")
+        self._log("\n[17-26] Sandbox MACF hooks")
 
         ops_table = self._find_sandbox_ops_table_via_conf()
         if ops_table is None:

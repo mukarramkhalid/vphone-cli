@@ -17,8 +17,6 @@ class VPhoneMenuController {
     var locationReplayStopItem: NSMenuItem?
     var screenRecorder: VPhoneScreenRecorder?
     var recordingItem: NSMenuItem?
-    var signer: VPhoneSigner?
-    var ipaInstaller: VPhoneIPAInstaller?
 
     init(keyHelper: VPhoneKeyHelper, control: VPhoneControl) {
         self.keyHelper = keyHelper
@@ -47,7 +45,6 @@ class VPhoneMenuController {
         mainMenu.addItem(buildKeysMenu())
         mainMenu.addItem(buildTypeMenu())
         mainMenu.addItem(buildConnectMenu())
-        mainMenu.addItem(buildInstallMenu())
         mainMenu.addItem(buildLocationMenu())
         mainMenu.addItem(buildRecordMenu())
         mainMenu.addItem(buildBatteryMenu())

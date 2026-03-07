@@ -26,7 +26,7 @@
 
 `66` 表示 JB 默认内核补丁计划；`78` 表示默认 + 可选内核补丁（`VPHONE_JB_ENABLE_OPTIONAL=1`）。
 
-详见 [research/00_patch_comparison_all_variants.md](../research/00_patch_comparison_all_variants.md) 了解各组件的详细分项对比。
+详见 [research/0_binary_patch_comparison.md](../research/0_binary_patch_comparison.md) 了解各组件的详细分项对比。
 
 ## 先决条件
 

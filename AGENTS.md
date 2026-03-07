@@ -20,7 +20,7 @@ Virtual iPhone boot tool using Apple's Virtualization.framework with PCC researc
 - If blocked or waiting on user input, write the exact blocker and next action in `/TODO.md`.
 - If not exists, continue existing work until complete. If exists, follow `/TODO.md` instructions.
 
-For any changes applying new patches, also update research/00_patch_comparison_all_variants.md. Dont forget this.
+For any changes applying new patches, also update research/0_binary_patch_comparison.md. Dont forget this.
 
 ## Local Skills
 
@@ -29,11 +29,11 @@ For any changes applying new patches, also update research/00_patch_comparison_a
 
 ## Firmware Variants
 
-| Variant             | Boot Chain |    CFW    | Make Targets                       |
-| ------------------- | :--------: | :-------: | ---------------------------------- |
-| **Regular**         | 38 patches | 10 phases | `fw_patch` + `cfw_install`         |
-| **Development**     | 49 patches | 12 phases | `fw_patch_dev` + `cfw_install_dev` |
-| **Jailbreak (WIP)** | 84 patches | 14 phases | `fw_patch_jb` + `cfw_install_jb`   |
+| Variant             | Boot Chain  |    CFW    | Make Targets                       |
+| ------------------- | :---------: | :-------: | ---------------------------------- |
+| **Regular**         | 51 patches  | 10 phases | `fw_patch` + `cfw_install`         |
+| **Development**     | 64 patches  | 12 phases | `fw_patch_dev` + `cfw_install_dev` |
+| **Jailbreak (WIP)** | 126 patches | 14 phases | `fw_patch_jb` + `cfw_install_jb`   |
 
 See `research/` for detailed firmware pipeline, component origins, patch breakdowns, and boot flow documentation.
 
@@ -73,6 +73,7 @@ sources/
     ├── VPhoneMenuConnect.swift       # Connect menu — devmode, ping, version, file browser
     ├── VPhoneMenuInstall.swift       # Install menu — IPA installation to guest
     ├── VPhoneMenuRecord.swift        # Record menu — screen recording controls
+    ├── VPhoneMenuBattery.swift       # Battery menu — battery status display
     │
     │   # IPA installation
     ├── VPhoneIPAInstaller.swift      # IPA extraction, signing, and installation
@@ -89,8 +90,8 @@ scripts/
 ├── patchers/                     # Python patcher modules
 │   ├── iboot.py                  #   iBoot patcher (iBSS/iBEC/LLB)
 │   ├── iboot_jb.py              #   JB: iBoot nonce skip
-│   ├── kernel.py                 #   Kernel patcher (25 patches)
-│   ├── kernel_jb.py             #   JB: kernel patches (~34)
+│   ├── kernel.py                 #   Kernel patcher (26 patches)
+│   ├── kernel_jb.py             #   JB: kernel patches (~40)
 │   ├── txm.py                   #   TXM patcher
 │   ├── txm_dev.py               #   Dev: TXM entitlements/debugger/dev mode
 
@@ -111,7 +112,9 @@ scripts/
 ├── setup_machine.sh              # Full automation (setup → first boot)
 ├── setup_tools.sh                # Install deps, build toolchain, create venv
 ├── setup_venv.sh                 # Create Python venv
-└── setup_libimobiledevice.sh     # Build libimobiledevice from source
+├── setup_venv_linux.sh           # Create Python venv (Linux)
+├── setup_libimobiledevice.sh     # Build libimobiledevice from source
+└── tail_jb_patch_logs.sh         # Tail JB patch log output
 
 research/                         # Detailed firmware/patch documentation
 ```

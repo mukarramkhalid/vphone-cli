@@ -26,7 +26,7 @@ PCC 리서치 VM 인프라와 Apple의 Virtualization.framework를 사용하여 
 
 `66`은 JB 기본 커널 패치 플랜, `78`은 기본 + 선택 커널 패치(`VPHONE_JB_ENABLE_OPTIONAL=1`)입니다.
 
-컴포넌트별 상세 분류는 [research/00_patch_comparison_all_variants.md](../research/00_patch_comparison_all_variants.md)를 참조하세요.
+컴포넌트별 상세 분류는 [research/0_binary_patch_comparison.md](../research/0_binary_patch_comparison.md)를 참조하세요.
 
 ## 사전 요구 사항
 

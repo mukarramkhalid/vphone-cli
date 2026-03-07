@@ -46,14 +46,12 @@ if __name__ == "__main__":
     from patchers.cfw_patch_cache_loader import patch_launchd_cache_loader
     from patchers.cfw_patch_mobileactivationd import patch_mobileactivationd
     from patchers.cfw_patch_jetsam import patch_launchd_jetsam
-    from patchers.cfw_inject_dylib import inject_dylib
     from patchers.cfw_daemons import parse_cryptex_paths, inject_daemons
 else:
     from .cfw_patch_seputil import patch_seputil
     from .cfw_patch_cache_loader import patch_launchd_cache_loader
     from .cfw_patch_mobileactivationd import patch_mobileactivationd
     from .cfw_patch_jetsam import patch_launchd_jetsam
-    from .cfw_inject_dylib import inject_dylib
     from .cfw_daemons import parse_cryptex_paths, inject_daemons
 
 
@@ -110,8 +108,22 @@ def main():
         if len(sys.argv) < 4:
             print("Usage: patch_cfw.py inject-dylib <binary> <dylib_path>")
             sys.exit(1)
-        if not inject_dylib(sys.argv[2], sys.argv[3]):
+        import subprocess, shutil
+        insert_dylib_bin = shutil.which("insert_dylib")
+        if not insert_dylib_bin:
+            # Check .tools/bin/ relative to project root
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            candidate = os.path.join(project_root, ".tools", "bin", "insert_dylib")
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                insert_dylib_bin = candidate
+        if not insert_dylib_bin:
+            print("[-] insert_dylib not found. Run: make setup_tools")
             sys.exit(1)
+        rc = subprocess.run(
+            [insert_dylib_bin, "--weak", "--inplace", "--all-yes", sys.argv[3], sys.argv[2]],
+        ).returncode
+        if rc != 0:
+            sys.exit(rc)
 
     else:
         print(f"Unknown command: {cmd}")

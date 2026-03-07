@@ -1,6 +1,6 @@
 # TXM Jailbreak Patch Analysis
 
-Analysis of 6 logical TXM jailbreak patches (11 instruction modifications) applied by `txm_jb.py` on the RESEARCH variant
+Analysis of 6 logical TXM jailbreak patches (11 instruction modifications) applied by `txm_dev.py` on the RESEARCH variant
 of TXM from iPhone17,3 / PCC-CloudOS 26.x.
 
 ## TXM Execution Model
@@ -314,7 +314,7 @@ falls through to the version checks which return success for version <= 5.
 This effectively bypasses CodeSignature hash validation --- the hash data exists
 in the blob but the hash-present flag is suppressed, so the consistency check passes.
 
-### `txm_jb.py` dynamic finder: `patch_selector24_hash_extraction_nop()`
+### `txm_dev.py` dynamic finder: `patch_selector24_force_pass()`
 
 Scans for `mov w0, #0xa1` as a unique anchor to locate the CS hash validator function,
 finds PACIBSP to determine function start, then matches the pattern
@@ -412,7 +412,7 @@ Universal entitlement lookup function. When `a1 != 0`, it resolves the manifest'
 entitlement dictionary and searches for the named key via `sub_FFFFFFF017036294`.
 Returns a composite status word where bit 0 indicates the entitlement was found.
 
-### `txm_jb.py` dynamic finder: `patch_get_task_allow_force_true()`
+### `txm_dev.py` dynamic finder: `patch_get_task_allow_force_true()`
 
 Searches for string refs to `"get-task-allow"`, then scans forward for the pattern
 `BL X / TBNZ w0, #0, Y`. Patches the BL to `MOV X0, #1`.
@@ -495,7 +495,7 @@ Since the validator returns the pointer unchanged, `x20` (raw arg) and the valid
 pointer both refer to the same object. The shellcode's `STRB W0, [X20, #0x30]`
 writes to the correct location.
 
-### `txm_jb.py` dynamic finder: `patch_selector42_29_shellcode()`
+### `txm_dev.py` dynamic finder: `patch_selector42_29_shellcode()`
 
 1. Finds the "debugger gate function" via string refs to `"com.apple.private.cs.debugger"`
 2. Locates the dispatch stub by matching `BTI j / MOV X0, X20 / BL / MOV X1, X21 / MOV X2, X22 / BL debugger_gate / B`
@@ -557,7 +557,7 @@ branches to the success path, bypassing both the entitlement check and the
 fallback flag check. This allows any process to create debug memory mappings
 regardless of whether it has `com.apple.private.cs.debugger`.
 
-### `txm_jb.py` dynamic finder: `patch_debugger_entitlement_force_true()`
+### `txm_dev.py` dynamic finder: `patch_debugger_entitlement_force_true()`
 
 Searches for string refs to `"com.apple.private.cs.debugger"`, then matches
 the pattern: `mov x0, #0 / mov x2, #0 / bl X / tbnz w0, #0, Y`. Patches the BL
@@ -645,7 +645,7 @@ if ( (byte_FFFFFFF017070F24 & 1) == 0 )
     return 27;    // developer mode not enabled
 ```
 
-### `txm_jb.py` dynamic finder: `patch_developer_mode_bypass()`
+### `txm_dev.py` dynamic finder: `patch_developer_mode_bypass()`
 
 Searches for string refs to `"developer mode enabled due to system policy
 configuration"`, then scans backwards for a `tbz/tbnz/cbz/cbnz` instruction

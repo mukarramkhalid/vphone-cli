@@ -74,12 +74,10 @@
 
 ### JB-Only Kernel Methods (Reference List)
 
-Current default schedule note (2026-03-06): `patch_cred_label_update_execve` remains temporarily excluded from `_PATCH_METHODS` pending staged re-validation. `patch_syscallmask_apply_to_proc` has been rebuilt around the real syscallmask apply wrapper and is re-enabled after focused PCC 26.1 dry-run validation plus user-side boot confirmation; refreshed XNU/IDA review also confirms historical C22 was the all-ones-mask variant, not a `NULL`-mask install. `patch_hook_cred_label_update_execve` has also been rebuilt as a faithful upstream C23 wrapper trampoline: it retargets sandbox `mac_policy_ops[18]` to a cave that copies `VSUID`/`VSGID` owner state into the pending credential, sets `P_SUGID`, and branches back to the original wrapper. `patch_iouc_failed_macf` has been rebuilt as a narrow branch-level gate patch: the old repo-only entry early-return on `0xFFFFFE000825B0C0` was discarded, and A5-v2 now patches the post-`mac_iokit_check_open` `CBZ W0, allow` gate at `0xFFFFFE000825BA98` to unconditional allow while preserving the surrounding IOUserClient setup flow. `patch_vm_fault_enter_prepare` was retargeted to the upstream PCC 26.1 research `cs_bypass` gate and re-enabled for dry-run validation. `patch_bsd_init_auth` has been retargeted to the real `_bsd_init` rootauth failure branch and re-enabled for staged validation. Fresh IDA re-analysis shows JB-14 previously used a false-positive matcher; it now targets the real `_bsd_init` rootauth failure branch using in-function Capstone-decoded control-flow semantics and is semantically redundant with base patch #3 when JB is layered on top of `fw_patch`. For JB-16, the historical hit at `0xFFFFFE000836E1F0` is now treated as semantically wrong: it patches the `"SecureRoot"` name-check gate inside `AppleARMPE::callPlatformFunction`, not the `"SecureRootName"` deny return consumed by `IOSecureBSDRoot()`. The implementation was retargeted on 2026-03-06 to `0xFFFFFE000836E464` (`CSEL W22, WZR, W9, NE -> MOV W22, #0`) and re-enabled in `KernelJBPatcher._GROUP_B_METHODS` pending restore/boot validation.
-
 | #     | Group | Method                                | Function                                                                                             | Purpose                                                                                                                                                                              | JB Enabled |
 | ----- | ----- | ------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :--------: |
 | JB-01 | A     | `patch_amfi_cdhash_in_trustcache`     | `AMFIIsCDHashInTrustCache`                                                                           | Always return true + store hash                                                                                                                                                      |     Y      |
-| JB-02 | A     | `patch_amfi_execve_kill_path`         | AMFI execve kill return site                                                                         | Convert shared kill return from deny to allow                                                                                                                                        |     Y      |
+| JB-02 | A     | `patch_amfi_execve_kill_path`         | AMFI execve kill return site                                                                         | Convert shared kill return from deny to allow (superseded by C21; standalone only)                                                                                                   |     N      |
 | JB-03 | C     | `patch_cred_label_update_execve`      | `_cred_label_update_execve`                                                                          | Reworked C21-v3: C21-v1 already boots; v3 keeps split late exits and additionally ORs success-only helper bits `0xC` after clearing `0x3F00`; still disabled pending boot validation |     N      |
 | JB-04 | C     | `patch_hook_cred_label_update_execve` | sandbox `mpo_cred_label_update_execve` wrapper (`ops[18]` -> `sub_FFFFFE00093BDB64`)                 | Faithful upstream C23 trampoline: copy `VSUID`/`VSGID` owner state into pending cred, set `P_SUGID`, then branch back to wrapper                                                     |     Y      |
 | JB-05 | C     | `patch_kcall10`                       | `sysent[439]` (`SYS_kas_info` replacement)                                                           | Rebuilt ABI-correct kcall cave: `target + 7 args -> uint64 x0`; re-enabled after focused dry-run validation                                                                          |     Y      |
@@ -103,12 +101,6 @@ Current default schedule note (2026-03-06): `patch_cred_label_update_execve` rem
 | JB-23 | B     | `patch_thid_should_crash`             | `_thid_should_crash`                                                                                 | Prevent GUARD_TYPE_MACH_PORT crash                                                                                                                                                   |     Y      |
 | JB-24 | B     | `patch_vm_fault_enter_prepare`        | `_vm_fault_enter_prepare`                                                                            | Force `cs_bypass` fast path in runtime fault validation                                                                                                                              |     Y      |
 | JB-25 | B     | `patch_vm_map_protect`                | `_vm_map_protect`                                                                                    | Skip upstream write-downgrade gate in `vm_map_protect`                                                                                                                               |     Y      |
-
-JB rework note (2026-03-06, remaining active methods): `JB-01`, `JB-08`, `JB-09`, `JB-06`, `JB-11`, `JB-12`, `JB-13`, `JB-17`, `JB-19`, and `JB-23` have now also been rechecked against `/Users/qaq/Desktop/patch_fw.py`, IDA PCC 26.1 research, `research/reference/xnu`, and focused dry-runs on both PCC 26.1 research/release. Of these, `JB-09` was materially pulled back to the upstream `mac_policy_ops` table-entry rewrite model (common allow stub retarget, matching `patch_fw.py` offsets) instead of per-hook body stubs; `JB-06` dropped its broad AMFI-text fallback; `JB-12` tightened to the exact early `ldr/cbz/bl/cbz` guard pair; and `JB-19` now requires a unique `krn.`-anchored verifyPermission gate across all string refs. The remaining six (`JB-01`, `JB-08`, `JB-11`, `JB-13`, `JB-17`, `JB-23`) matched upstream offsets and semantics without further retarget.
-
-JB retarget note (2026-03-06): `JB-15`, `JB-18`, `JB-20`, `JB-21`, `JB-22`, and `JB-25` were rechecked against `/Users/qaq/Desktop/patch_fw.py`, IDA PCC 26.1 research, and `research/reference/xnu`. Current preferred runtime behavior is to match the known-good upstream semantic gate unless binary+source evidence clearly disproves it. In this pass, `JB-22` was pulled back from a helper-return rewrite to the upstream early `pid == 0` gate, and `JB-20` was pulled back from the later preboot-fallback compare to the upstream first root-mount compare.
-
-JB-24 note (2026-03-06): the old derived matcher hit the `VM_PAGE_CONSUME_CLUSTERED()` lock/unlock sequence inside `vm_fault_enter_prepare`, i.e. `pmap_lock_phys_page()` / `pmap_unlock_phys_page()`. The implementation is now retargeted to the upstream PCC 26.1 research `cs_bypass` gate at `0x00BA9E1C` / `0xFFFFFE0007BADE1C`.
 
 ## CFW Installation Patches
 
@@ -138,18 +130,19 @@ JB-24 note (2026-03-06): the old derived matcher hit the `VM_PAGE_CONSUME_CLUSTE
 
 ### CFW Installer Flow Matrix (Script-Level)
 
-| Flow Item                                            | Regular (`cfw_install.sh`)      | Dev (`cfw_install_dev.sh`)                      | JB (`cfw_install_jb.sh`)                      |
-| ---------------------------------------------------- | ------------------------------- | ----------------------------------------------- | --------------------------------------------- |
-| Base CFW phases (1/7 -> 7/7)                         | Runs directly                   | Runs directly                                   | Runs via `CFW_SKIP_HALT=1 zsh cfw_install.sh` |
-| Dev overlay (`rpcserver_ios` replacement)            | -                               | Y (`apply_dev_overlay`)                         | -                                             |
-| SSH readiness wait before install                    | Y (`wait_for_device_ssh_ready`) | -                                               | Y (inherited from base run)                   |
-| launchd jetsam patch (`patch-launchd-jetsam`)        | -                               | Y (base-flow injection)                         | Y (JB-1)                                      |
-| launchd dylib injection (`inject-dylib /b`)          | -                               | -                                               | Y (JB-1)                                      |
-| Procursus bootstrap deployment                       | -                               | -                                               | Y (JB-2)                                      |
-| BaseBin hook deployment (`*.dylib` -> `/mnt1/cores`) | -                               | -                                               | Y (JB-3)                                      |
-| Additional input resources                           | `cfw_input`                     | `cfw_input` + `resources/cfw_dev/rpcserver_ios` | `cfw_input` + `cfw_jb_input`                  |
-| Extra tool requirement beyond base                   | -                               | -                                               | `zstd`                                        |
-| Halt behavior                                        | Halts unless `CFW_SKIP_HALT=1`  | Halts unless `CFW_SKIP_HALT=1`                  | Always halts after JB phases                  |
+| Flow Item                                     | Regular (`cfw_install.sh`)      | Dev (`cfw_install_dev.sh`) | JB (`cfw_install_jb.sh`)                      |
+| --------------------------------------------- | ------------------------------- | -------------------------- | --------------------------------------------- |
+| Base CFW phases (1/7 -> 7/7)                  | Runs directly                   | Runs directly              | Runs via `CFW_SKIP_HALT=1 zsh cfw_install.sh` |
+| Dev overlay (`rpcserver_ios` replacement)     | -                               | Y (`apply_dev_overlay`)    | -                                             |
+| SSH readiness wait before install             | Y (`wait_for_device_ssh_ready`) | -                          | Y (inherited from base run)                   |
+| launchd jetsam patch (`patch-launchd-jetsam`) | -                               | Y (base-flow injection)    | Y (JB-1)                                      |
+| launchd dylib injection (`inject-dylib /b`)   | -                               | -                          | Y (JB-1)                                      |
+
+| Procursus bootstrap deployment | - | - | Y (JB-2) |
+| BaseBin hook deployment (`*.dylib` -> `/mnt1/cores`) | - | - | Y (JB-3) |
+| Additional input resources | `cfw_input` | `cfw_input` + `resources/cfw_dev/rpcserver_ios` | `cfw_input` + `cfw_jb_input` |
+| Extra tool requirement beyond base | - | - | `zstd` |
+| Halt behavior | Halts unless `CFW_SKIP_HALT=1` | Halts unless `CFW_SKIP_HALT=1` | Always halts after JB phases |
 
 ## Summary
 
@@ -160,20 +153,21 @@ JB-24 note (2026-03-06): the old derived matcher hit the `VM_PAGE_CONSUME_CLUSTE
 | iBEC                     |       3 |   3 |   3 |
 | LLB                      |       6 |   6 |   6 |
 | TXM                      |       1 |  12 |  12 |
-| Kernel                   |      28 |  28 |  53 |
-| Boot chain total         |      41 |  52 |  78 |
+| Kernel (base)            |      28 |  28 |  28 |
+| Kernel (JB methods)      |       - |   - |  59 |
+| Boot chain total         |      41 |  52 | 112 |
 | CFW binary patches       |       4 |   5 |   6 |
 | CFW installed components |       6 |   7 |   8 |
 | CFW total                |      10 |  12 |  14 |
-| Grand total              |      51 |  64 |  92 |
+| Grand total              |      51 |  64 | 126 |
 
 ## Ramdisk Variant Matrix
 
-| Variant       | Pre-step            | `Ramdisk/txm.img4`               | `Ramdisk/krnl.ramdisk.img4`                                                      | `Ramdisk/krnl.img4`                     | Effective kernel used by `ramdisk_send.sh`          |
-| ------------- | ------------------- | -------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------------- |
-| `RAMDISK`     | `make fw_patch`     | release TXM + base TXM patch (1) | base kernel (28), legacy `*.ramdisk` preferred else derive from pristine CloudOS | restore kernel from `fw_patch` (28)     | `krnl.ramdisk.img4` preferred, fallback `krnl.img4` |
-| `DEV+RAMDISK` | `make fw_patch_dev` | release TXM + base TXM patch (1) | base kernel (28), same derivation rule                                           | restore kernel from `fw_patch_dev` (28) | `krnl.ramdisk.img4` preferred, fallback `krnl.img4` |
-| `JB+RAMDISK`  | `make fw_patch_jb`  | release TXM + base TXM patch (1) | base kernel (28), same derivation rule                                           | restore kernel from `fw_patch_jb` (53)  | `krnl.ramdisk.img4` preferred, fallback `krnl.img4` |
+| Variant       | Pre-step            | `Ramdisk/txm.img4`               | `Ramdisk/krnl.ramdisk.img4`                                                      | `Ramdisk/krnl.img4`                       | Effective kernel used by `ramdisk_send.sh`          |
+| ------------- | ------------------- | -------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------- |
+| `RAMDISK`     | `make fw_patch`     | release TXM + base TXM patch (1) | base kernel (28), legacy `*.ramdisk` preferred else derive from pristine CloudOS | restore kernel from `fw_patch` (28)       | `krnl.ramdisk.img4` preferred, fallback `krnl.img4` |
+| `DEV+RAMDISK` | `make fw_patch_dev` | release TXM + base TXM patch (1) | base kernel (28), same derivation rule                                           | restore kernel from `fw_patch_dev` (28)   | `krnl.ramdisk.img4` preferred, fallback `krnl.img4` |
+| `JB+RAMDISK`  | `make fw_patch_jb`  | release TXM + base TXM patch (1) | base kernel (28), same derivation rule                                           | restore kernel from `fw_patch_jb` (28+59) | `krnl.ramdisk.img4` preferred, fallback `krnl.img4` |
 
 ## Cross-Version Dynamic Snapshot
 
